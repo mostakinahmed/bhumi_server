@@ -1,0 +1,9 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Optional: If you want to keep initial sale records local and not push test data to GitHub, 
+# you can uncomment the line below (though usually, keeping an empty salelist.json/datalist.json via gitkeep is preferred)
+# data/salelist.json
