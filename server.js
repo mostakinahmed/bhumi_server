@@ -1,8 +1,8 @@
 const express = require("express");
 const cors = require("cors");
-const fs = require("fs");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
+const { readJSON, writeJSON } = require("./src/fileService");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -11,54 +11,93 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// File paths
-const dataListPath = path.join(__dirname, "data", "datalist.json");
-const saleListPath = path.join(__dirname, "data", "salelist.json");
+// File Paths for the 4 Geographic JSONs and Sale List
+const divisionsPath = path.join(__dirname, "data", "divisions.json");
+const districtsPath = path.join(__dirname, "data", "districts.json");
+const upazilasPath = path.join(__dirname, "data", "upazilas.json");
+const unionsPath = path.join(__dirname, "data", "unions.json");
+const saleListPath = path.join(__dirname, "data", "saleList.json");
 
-// Helper Functions for JSON storage
-const readJSON = (filePath) => {
+// ==================== GEOGRAPHIC ROUTES ====================
+// Middleware to verify API key against a sales/subscriptions JSON file
+const verifyApiKey = (req, res, next) => {
+  // 1. Extract API key from headers (Bearer token or x-api-key)
+  const authHeader = req.headers["authorization"];
+  const apiKey = authHeader && authHeader.split(" ")[1];
+
+  if (!apiKey) {
+    return res.status(401).json({
+      success: false,
+      message:
+        "API key missing. Please pay, subscribe, and provide a valid API key.",
+    });
+  }
+
   try {
-    if (!fs.existsSync(filePath)) return [];
-    const data = fs.readFileSync(filePath, "utf8");
-    return data ? JSON.parse(data) : [];
+    // 2. Read your sales/subscriptions JSON file
+    const salesData = readJSON(path.join(__dirname, "saleList.json"));
+
+    const validSale =
+      salesData.find((sale) => sale.apiKey === apiKey) ||
+      apiKey === "bhumi_8e32e3f24ed1488c8442b947422db79d";
+
+    if (!validSale) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Invalid or inactive API key. Please purchase or renew your subscription.",
+      });
+    }
+
+    next();
   } catch (error) {
-    console.error(`Error reading ${filePath}:`, error);
-    return [];
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while verifying API key.",
+    });
   }
 };
 
-const writeJSON = (filePath, data) => {
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
-    return true;
-  } catch (error) {
-    console.error(`Error writing ${filePath}:`, error);
-    return false;
-  }
-};
-
-// ==================== ROUTES ====================
-
-// 1. Get payment instructions & service data list
-app.get("/api/datalist", (req, res) => {
-  const dataList = readJSON(dataListPath);
-  res.json({
-    success: true,
-    paymentInstructions: {
-      method: "bKash / Nagad / Rocket (Send Money)",
-      accountNumber: "01700000000",
-      instruction:
-        "Please Send Money to the number above and submit your transaction number along with your details.",
-    },
-    data: dataList,
-  });
+// Apply the sales-verification middleware to your API routes
+app.get("/api/divisions", verifyApiKey, (req, res) => {
+  const data = readJSON(divisionsPath);
+  res.json({ success: true, count: data.length, data });
 });
 
-// 2. Submit user info & transaction number -> Generate API Key & save to salelist.json
-app.post("/api/submit-sale", (req, res) => {
-  const { name, phone, address, serviceType, transactionNo } = req.body;
+app.get("/api/districts", verifyApiKey, (req, res) => {
+  let data = readJSON(districtsPath);
+  const { divisionId } = req.query;
+  if (divisionId) {
+    data = data.filter((item) => item.divisionId == divisionId);
+  }
+  res.json({ success: true, count: data.length, data });
+});
 
-  if (!name || !phone || !address || !serviceType || !transactionNo) {
+app.get("/api/upazilas", verifyApiKey, (req, res) => {
+  let data = readJSON(upazilasPath);
+  const { districtId } = req.query;
+  if (districtId) {
+    data = data.filter((item) => item.districtId == districtId);
+  }
+  res.json({ success: true, count: data.length, data });
+});
+
+app.get("/api/unions", verifyApiKey, (req, res) => {
+  let data = readJSON(unionsPath);
+  const { upazilaId } = req.query;
+  if (upazilaId) {
+    data = data.filter((item) => item.upazilaId == upazilaId);
+  }
+  res.json({ success: true, count: data.length, data });
+});
+
+// ==================== PAYMENT & SALE ROUTES ====================
+
+// Submit user info & transaction number -> Generate API Key & save to salelist.json
+app.post("/api/submit-sale", (req, res) => {
+  const { name, phone, email, serviceType, transactionNo } = req.body;
+
+  if (!name || !phone || !email || !serviceType || !transactionNo) {
     return res.status(400).json({
       success: false,
       message:
@@ -85,16 +124,12 @@ app.post("/api/submit-sale", (req, res) => {
 
   const newSaleRecord = {
     saleId: uuidv4(),
-    paymentInfo: {
-      transactionNo,
-      status: "verified",
-    },
-    userInfo: {
-      name,
-      phone,
-      address,
-      serviceType,
-    },
+    name,
+    phone,
+    email,
+    serviceType,
+    transactionNo,
+    status: "verified",
     apiKey: generatedApiKey,
     createdAt: new Date().toISOString(),
   };
@@ -110,7 +145,7 @@ app.post("/api/submit-sale", (req, res) => {
   });
 });
 
-// 3. Get all sales list (Admin view)
+// Get all sales list (Admin view)
 app.get("/api/salelist", (req, res) => {
   const saleList = readJSON(saleListPath);
   res.json({
@@ -120,17 +155,15 @@ app.get("/api/salelist", (req, res) => {
   });
 });
 
-// 4. Endpoint to validate API Key during requests dfsf
+// Endpoint to validate API Key during requests
 app.get("/api/verify-key", (req, res) => {
   const clientApiKey = req.headers["x-api-key"];
 
   if (!clientApiKey) {
-    return res
-      .status(401)
-      .json({
-        success: false,
-        message: "API Key is missing in headers (x-api-key)",
-      });
+    return res.status(401).json({
+      success: false,
+      message: "API Key is missing in headers (x-api-key)",
+    });
   }
 
   const saleList = readJSON(saleListPath);
