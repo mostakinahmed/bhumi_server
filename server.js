@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
@@ -6,6 +7,7 @@ const { readJSON, writeJSON } = require("./src/fileService");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const { sendApiKeyEmail } = require("./src/emailService");
 
 // Middleware
 app.use(cors());
@@ -94,7 +96,7 @@ app.get("/api/unions", verifyApiKey, (req, res) => {
 // ==================== PAYMENT & SALE ROUTES ====================
 
 // Submit user info & transaction number -> Generate API Key & save to salelist.json
-app.post("/api/submit-sale", (req, res) => {
+app.post("/api/submit-sale", async (req, res) => {
   const { name, phone, email, serviceType, transactionNo } = req.body;
 
   if (!name || !phone || !email || !serviceType || !transactionNo) {
@@ -136,6 +138,9 @@ app.post("/api/submit-sale", (req, res) => {
 
   saleList.push(newSaleRecord);
   writeJSON(saleListPath, saleList);
+
+  // Send the API key directly to the user's email
+  await sendApiKeyEmail(email, name, generatedApiKey);
 
   res.status(201).json({
     success: true,
