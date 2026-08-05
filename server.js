@@ -140,12 +140,14 @@ app.post("/api/submit-sale", async (req, res) => {
   writeJSON(saleListPath, saleList);
 
   // Send the API key directly to the user's email
-  await sendApiKeyEmail(email, name, generatedApiKey);
+  const emailResult = await sendApiKeyEmail(email, name, generatedApiKey);
 
+  // 2. Return both the sale info AND the email result to your screen
   res.status(201).json({
     success: true,
-    message: "Payment verified and API key generated successfully!",
+    message: "Payment verified and record saved!",
     apiKey: generatedApiKey,
+    emailStatus: emailResult, // <-- This will show if the email succeeded or failed with details
     saleRecord: newSaleRecord,
   });
 });
