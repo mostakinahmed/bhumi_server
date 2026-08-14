@@ -94,7 +94,7 @@ const sendApiKeyEmail = async (userEmail, userName, apiKey) => {
     console.log("Email sent successfully: %s", info.messageId);
     return { success: true };
   } catch (error) {
-    // Log the complete error details
+  
     console.error("Detailed SMTP Error:", {
       message: error.message,
       code: error.code,
@@ -107,3 +107,4 @@ const sendApiKeyEmail = async (userEmail, userName, apiKey) => {
 };
 
 module.exports = { sendApiKeyEmail };
+

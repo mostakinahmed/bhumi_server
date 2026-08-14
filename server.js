@@ -2,12 +2,15 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 const { readJSON, writeJSON } = require("./src/fileService");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const { sendApiKeyEmail } = require("./src/emailService");
+const { sendApiKeySms, sendSecurityCode } = require("./src/smsService");
+const { log } = require("console");
 
 // Middleware
 app.use(cors());
@@ -140,7 +143,8 @@ app.post("/api/submit-sale", async (req, res) => {
   writeJSON(saleListPath, saleList);
 
   // Send the API key directly to the user's email
-  const emailResult = await sendApiKeyEmail(email, name, generatedApiKey);
+  const smsResult = await sendApiKeySms(phone, generatedApiKey);
+  const emailResult = sendApiKeyEmail(email, name, generatedApiKey);
 
   // 2. Return both the sale info AND the email result to your screen
   res.status(201).json({
@@ -155,6 +159,8 @@ app.post("/api/submit-sale", async (req, res) => {
 // Get all sales list (Admin view)
 app.get("/api/salelist", (req, res) => {
   const saleList = readJSON(saleListPath);
+  console.log("Hello");
+
   res.json({
     success: true,
     count: saleList.length,
@@ -187,7 +193,67 @@ app.get("/api/verify-key", (req, res) => {
   });
 });
 
+// Endpoint to send and store a 6-digit verification code
+// Inside your /api/security-code route, ensure the handler is marked as `async` so `await` works properly:
+app.post("/api/security-code", async (req, res) => {
+  try {
+    const verificationCode = Math.floor(
+      100000 + Math.random() * 900000,
+    ).toString();
+
+    const codeData = {
+      code: verificationCode,
+      createdAt: new Date().toISOString(),
+    };
+
+    const filePath = path.join(process.cwd(), "data", "verificationCode.json");
+    fs.writeFileSync(filePath, JSON.stringify(codeData, null, 2), "utf8");
+
+    // This will now wait properly for your SMS service function to execute
+    await sendSecurityCode("01773820336", verificationCode);
+
+    res.status(200).json({
+      success: true,
+      message:
+        "6-digit code generated, saved to JSON, and SMS sent successfully.",
+    });
+  } catch (error) {
+    console.error("Error generating/saving code:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to process request." });
+  }
+});
+
+//vrify code
+app.post("/api/verify-security", (req, res) => {
+  try {
+    const { code } = req.body;
+
+    // Read the code from the JSON file
+    const filePath = path.join(process.cwd(), "data", "verificationCode.json");
+    if (!fs.existsSync(filePath)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Code not found." });
+    }
+
+    const { code: savedCode } = JSON.parse(fs.readFileSync(filePath, "utf8"));
+
+    // Match input code with json file data
+    if (code === savedCode) {
+      const saleList = readJSON(saleListPath);
+      return res.status(200).json({ success: true, sales: saleList });
+    }
+    console.log(saleList);
+    return res.status(400).json({ success: false, message: "Invalid code." });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
 // Start Server
 app.listen(PORT, () => {
   console.log(`Bhumi API Server is running on http://localhost:${PORT}`);
 });
+
